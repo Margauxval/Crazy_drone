@@ -4,7 +4,7 @@
 
 Objectif : observer les limites liées aux perturbations de l'air entre les drones 
 
-1. Test avec un seul Crazyflie
+### 1. Test avec un seul Crazyflie
 
 - faire voler le crazy au dessus d'une colonne d'air du Dioné et mesurer la limite à laquelle le crazy ne compense plus les perturbations de l'aire 
 - faire pareil au dessus des 4 colonnes d'air ?
@@ -20,7 +20,7 @@ Objectif : observer les limites liées aux perturbations de l'air entre les dron
 
 - faire voler le crazy à différents points fixes autour du Dioné pour cartographier les différentes zones (stable, vibrant, impossible)
 
-2. Test avec plusieurs Crazyflie
+### 2. Test avec plusieurs Crazyflie
 
 - mettre 3 crazy en file indienne dans une zone critique du Dioné (flux d'air) et voir si les drones se percutent ou se perturbent en s'adaptant
 - le but est de déterminer une distance de sécurité entre tous les followers
