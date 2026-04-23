@@ -1,5 +1,25 @@
 # Crazy_drone
 
+## A faire 
+
+### 1. Test un seul crazyflie
+
+- pour chaque expérience le leader sera stationnaire (crazy comme dioné)
+- le but est de programmer plusieurs expérience et de relever les données de position pour observer les limites dues aux perturbatiosn
+
+Test 1:
+- programmer un déplacement vertical au dessu du drone
+- partir du plus loin s'avancer doucement vers le drone stationnaire
+- observer les trois stades : stable, vibrant, impossible
+
+Test 2:
+- programmer un déplacement horizontal lent au dessus du drone stationnaire pour faire traverser un flux d'aire
+- observer s'il y a des instabilités lors de l'entrée ou de la sortie des colonnes d'air
+
+Test 3:
+- pas de programmation avancée juste un test sympa
+- faire voler le crazy en stationnaire à la limite estimé avec les expériences précédentes et augmenter les gaz du dioné : remarquer si le crazy s'adapte assez rapidement ou s'envole
+
 ## Idées de test 
 
 Objectif : observer les limites liées aux perturbations de l'air entre les drones 
