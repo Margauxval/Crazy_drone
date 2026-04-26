@@ -8,7 +8,7 @@
 - le but est de programmer plusieurs expérience et de relever les données de position pour observer les limites dues aux perturbatiosn
 
 Test 1:
-- programmer un déplacement vertical au dessu du drone
+- programmer un déplacement horizontal au dessu du drone
 - partir du plus loin s'avancer doucement vers le drone stationnaire
 - observer les trois stades : stable, vibrant, impossible
 
