@@ -7,6 +7,9 @@ L'objectif est de mesurer l'impact du flux d'air d'un drone stationnaire (Leader
 - en dessous : en fonction de la hauteur de dioné traverser en dessous pour voir effet du sol
 - plusieurs crazy : une flotte se rapproche du dioné + savoir si c'est important que la flotte connaisse position du dioné ?
 - ensuite cadriage de différentes zones (boîte)
+- bien se mettre d'accord et garder les valeurs de la vitesse et hauteur
+- données: position x, y, z + orientation
+- orientation : se renseigner sur la librairie crazy et choisir une + justifier 
 
 ## Configuration de l'expérience
 
