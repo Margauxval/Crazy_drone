@@ -4,7 +4,7 @@ L'objectif est de mesurer l'impact du flux d'air d'un drone stationnaire (Leader
 
 - dans le plan : se rapprocher () + traverser les flux ()
 - au dessus : traverser flux de dessus () + de haut se rapprocher ()
-- en dessous : en fonction de la hauteur traverser en dessous pour voir effet du sol ()
+- en dessous : en fonction de la hauteur du dioné à choisir traverser en dessous pour voir effet du sol ()
 - plusieurs crazy : une flotte se rapproche du dioné + savoir si c'est important que la flotte connaisse position du dioné ?
 - ensuite cadriage de différentes zones (boîte)
 - bien se mettre d'accord et garder les valeurs de la vitesse et hauteur
