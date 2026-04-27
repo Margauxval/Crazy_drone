@@ -4,9 +4,9 @@ L'objectif est de mesurer l'impact du flux d'air d'un drone stationnaire (Leader
 
 ## Protocoles à écrire
 
-- dans le plan : se rapprocher () + traverser les flux ()
-- au dessus : traverser flux de dessus () + de haut se rapprocher ()
-- en dessous : en fonction de la hauteur du dioné à choisir traverser en dessous pour voir effet du sol ()
+- dans le plan : se rapprocher (Margaux) + traverser les flux (Jean)
+- au dessus : traverser flux de dessus (Sam) + de haut se rapprocher (Valentin)
+- en dessous : en fonction de la hauteur du dioné à choisir traverser en dessous pour voir effet du sol (Théodore)
 - plusieurs crazy : une flotte se rapproche du dioné + savoir si c'est important que la flotte connaisse position du dioné ?
 - ensuite cadriage de différentes zones (boîte)
 - bien se mettre d'accord et garder les valeurs de la vitesse et hauteur
