@@ -2,6 +2,11 @@
 
 L'objectif est de mesurer l'impact du flux d'air d'un drone stationnaire (Leader) sur un drone mobile (Follower) en approche horizontale.
 
+- dans le plan : se rapprocher + traverser les flux
+- au dessus : traverser flux de dessus + de haut se rapprocher 
+- en dessous : en fonction de la hauteur de dioné traverser en dessous pour voir effet du sol
+- plusieurs crazy : une flotte se rapproche du dioné + savoir si c'est important que la flotte connaisse position du dioné ?
+
 ## Configuration de l'expérience
 
 - Leader (Stationnaire) : Un drone (Dioné ou Crazyflie) est maintenu en vol stationnaire à une position fixe (x=0,y=0,z=1.0m).
