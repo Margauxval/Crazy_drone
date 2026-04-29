@@ -8,11 +8,18 @@ Faire un protocole et un code pour chaque test:
 - Test 2 (Jean): dans le plan sur un des côté du drone (mêmes coordonnées z) statique traverser les flux d'air pour observer l'adaptation
 
 #### 2. Au dessus
-- Test 3 (Sam): 
-- au dessus : traverser flux de dessus (Sam) + de haut se rapprocher (Valentin)
-- en dessous : en fonction de la hauteur du dioné à choisir traverser en dessous pour voir effet du sol (Théodore)
-- plusieurs crazy : une flotte se rapproche du dioné + savoir si c'est important que la flotte connaisse position du dioné ?
-- ensuite cadriage de différentes zones (boîte)
+- Test 3 (Sam): au dessus du drone (mêmes coordonnées x et y) statique traverser les flux d'air pour observer l'adaptation
+- test 4 (Valentin): au dessus du drone statique un autre à une certaine hauteur (mêmes coordonnées x et y) se rapprocher (selon axe z) pour voir les différentes zones de perturbations (stable, vibrant, impossible)
+
+#### 3. En dessous
+- Test 5 (Théodore): en fonction de la hauteur du dioné (à choisir) traverser en dessous pour voir effet du sol 
+
+#### 4. Bonus
+- plusieurs crazy : une flotte se rapproche du dioné 
+- savoir si c'est important que la flotte connaisse position du dioné ?
+- cadriage de différentes zones (boîte)
+
+#### 5. A penser 
 - bien se mettre d'accord et garder les valeurs de la vitesse et hauteur
 - données: position x, y, z + orientation
 - orientation : se renseigner sur la librairie crazy et choisir une + justifier

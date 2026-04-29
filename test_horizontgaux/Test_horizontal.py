@@ -23,8 +23,8 @@ from cflib.positioning.motion_commander import MotionCommander
 # CONFIGURATION
 # ──────────────────────────────────────────
 
-URI_LEADER = 'radio://0/80/2M/3'   # Crazyflie ou Dioné leader
-URI_FOLLOWER = 'radio://0/80/2M/1'   # Crazyflie follower
+URI_LEADER = 'radio://0/80/2M/4'   # Crazyflie ou Dioné leader
+URI_FOLLOWER = 'radio://0/80/2M/A1'   # Crazyflie follower
 
 #URIS = [URI_LEADER]
 #URIS = [URI_FOLLOWER]
