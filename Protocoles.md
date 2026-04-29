@@ -1,4 +1,4 @@
-# Protocole : Caractérisation du Sillage 
+# Protocole : Test 1
 
 L'objectif est de mesurer l'impact du flux d'air d'un drone stationnaire (Leader) sur un drone mobile (Follower) en approche horizontale.
 
