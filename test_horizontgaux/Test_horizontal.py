@@ -23,15 +23,17 @@ from cflib.positioning.motion_commander import MotionCommander
 # CONFIGURATION
 # ──────────────────────────────────────────
 
-URI_LEADER   = 'radio://0/80/2M/12'   # Crazyflie ou Dioné leader
-URI_FOLLOWER = 'radio://0/80/2M/11'   # Crazyflie follower
+URI_LEADER = 'radio://0/80/2M/3'   # Crazyflie ou Dioné leader
+URI_FOLLOWER = 'radio://0/80/2M/1'   # Crazyflie follower
 
+#URIS = [URI_LEADER]
+#URIS = [URI_FOLLOWER]
 URIS = [URI_LEADER, URI_FOLLOWER]
 
 LEADER_HEIGHT   = 1.0    # hauteur de vol stationnaire du leader
 FOLLOWER_Z      = 1.0    # hauteur du follower (même plan horizontal)
-START_Y         = 2.5    # point de départ du follower
-END_Y           = 1.1    # point d'arrivée (bord hélices du leader)
+START_Y         = 1.0    # point de départ du follower
+END_Y           = 0.4    # point d'arrivée (bord hélices du leader)
 SWEEP_SPEED     = 0.05   # vitesse de balayage (lente pour max. de points)
 TAKEOFF_HEIGHT  = 0.5    # hauteur intermédiaire de décollage
 
@@ -215,29 +217,46 @@ def fly_sequence(scf):
 # ──────────────────────────────────────────
 
 if __name__ == '__main__':
+    # Initialisation des pilotes radio
     logging.basicConfig(level=logging.ERROR)
     cflib.crtp.init_drivers()
+
+    print("\n" + "="*40)
+    print("INITIALISATION DU SYSTÈME")
+    print("="*40)
 
     factory = CachedCfFactory(rw_cache='./cache')
 
     try:
+        print(f"📡 Tentative de connexion aux drones : {URIS}...")
+        # Le timeout de 10s permet de ne pas attendre indéfiniment
         with Swarm(URIS, factory=factory) as swarm:
-            print("=== Connexion aux Crazyflies ===")
+            print("Connexion réussie !")
+            
+            print("Réinitialisation des estimateurs de position...")
             swarm.reset_estimators()
-            print("Estimateurs réinitialisés")
+            print("Estimateurs prêts (les drones savent où ils sont)")
 
             swarm.parallel_safe(start_states_log)
-            print("Logging LightHouse démarré")
+            print("Logging activé (enregistrement des données commencé)")
 
-            print("\n=== DÉBUT DE L'EXPÉRIENCE ===")
-            print("  Leader  :", URI_LEADER,   "→ vol stationnaire")
-            print("  Follower:", URI_FOLLOWER,  "→ balayage horizontal")
-            print(f"  Trajectoire : y={START_Y} → y={END_Y} m  |  "
-                  f"z={FOLLOWER_Z} m  |  v={SWEEP_SPEED} m/s\n")
+            print("\n" + "!"*40)
+            print("DÉBUT DU VOL DANS 2 SECONDES...")
+            print("!"*40)
+            time.sleep(2.0)
 
+            # Lancement de la séquence de vol
             swarm.parallel_safe(fly_sequence)
 
+    except Exception as e:
+        print("\nERREUR CRITIQUE LORS DU DÉMARRAGE :")
+        print(f"{e}")
+        print("\nVérifiez :")
+        print("1. Que les drones sont allumés.")
+        print("2. Que la Crazyradio est branchée.")
+        print("3. Que les URIs (canaux/adresses) sont correctes.")
+
     finally:
-        # Sauvegarde CSV même en cas d'interruption (Ctrl+C, crash…)
         save_csv()
-        print("=== FIN DE L'EXPÉRIENCE ===")
+        print("FIN DE L'EXPÉRIENCE")
+        print("="*40)
