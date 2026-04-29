@@ -2,17 +2,6 @@
 
 L'objectif est de mesurer l'impact du flux d'air d'un drone stationnaire (Leader) sur un drone mobile (Follower) en approche horizontale.
 
-## Protocoles à écrire
-
-- dans le plan : se rapprocher (Margaux) + traverser les flux (Jean)
-- au dessus : traverser flux de dessus (Sam) + de haut se rapprocher (Valentin)
-- en dessous : en fonction de la hauteur du dioné à choisir traverser en dessous pour voir effet du sol (Théodore)
-- plusieurs crazy : une flotte se rapproche du dioné + savoir si c'est important que la flotte connaisse position du dioné ?
-- ensuite cadriage de différentes zones (boîte)
-- bien se mettre d'accord et garder les valeurs de la vitesse et hauteur
-- données: position x, y, z + orientation
-- orientation : se renseigner sur la librairie crazy et choisir une + justifier 
-
 ## Configuration de l'expérience
 
 - Leader (Stationnaire) : Un drone (Dioné ou Crazyflie) est maintenu en vol stationnaire à une position fixe (x=0,y=0,z=1.0m).

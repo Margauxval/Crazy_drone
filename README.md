@@ -1,6 +1,21 @@
 # Crazy_drone
 
 ## A faire 
+Faire un protocole et un code pour chaque test: 
+
+#### 1. Dans le plan 
+- Test 1 (Margaux): dans le plan avec un drone statique un autre à une certaine distance sur le côté (mêmes coordonnées z) se rapprocher (selon axe y) pour voir les différentes zones de perturbations (stable, vibrant, impossible)
+- Test 2 (Jean): dans le plan sur un des côté du drone (mêmes coordonnées z) statique traverser les flux d'air pour observer l'adaptation
+
+#### 2. Au dessus
+- Test 3 (Sam): 
+- au dessus : traverser flux de dessus (Sam) + de haut se rapprocher (Valentin)
+- en dessous : en fonction de la hauteur du dioné à choisir traverser en dessous pour voir effet du sol (Théodore)
+- plusieurs crazy : une flotte se rapproche du dioné + savoir si c'est important que la flotte connaisse position du dioné ?
+- ensuite cadriage de différentes zones (boîte)
+- bien se mettre d'accord et garder les valeurs de la vitesse et hauteur
+- données: position x, y, z + orientation
+- orientation : se renseigner sur la librairie crazy et choisir une + justifier
 
 ## Idées de test 
 
