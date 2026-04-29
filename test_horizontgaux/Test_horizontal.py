@@ -25,8 +25,8 @@ from cflib.positioning.motion_commander import MotionCommander
 # CONFIGURATION
 # ──────────────────────────────────────────
 
-URI_LEADER = 'radio://0/80/2M/A1'   # Crazyflie ou Dioné leader
-URI_FOLLOWER = 'radio://0/80/2M/4'   # Crazyflie follower
+URI_LEADER = 'radio://0/80/2M/4'   # Crazyflie ou Dioné leader
+URI_FOLLOWER = 'radio://0/80/2M/A1'   # Crazyflie follower
 
 #URIS = [URI_LEADER]
 #URIS = [URI_FOLLOWER]
@@ -237,38 +237,62 @@ def fly_sequence(scf):
 # ───────────────────
 
 def plot_results():
+    """
+    Exploite les données log_data pour afficher :
+    1. La trajectoire Y en fonction du temps (pour voir le balayage)
+    2. La vitesse Vy en fonction du temps (pour voir les perturbations)
+    """
     if not log_data:
-        print("Pas de données pour le graphique.")
+        print("❌ Pas de données collectées. Le graphique ne peut pas être généré.")
         return
 
-    # Organisation des données par drone
+    print("📊 Préparation des graphiques...")
+
+    # On prépare un dictionnaire pour séparer les données du Leader et du Follower
+    # Utilise l'URI comme clé pour que ça marche peu importe les IDs choisis
     data_dict = {uri: {'t': [], 'y': [], 'vy': []} for uri in URIS}
     
-    start_time = log_data[0]['timestamp']
+    # Temps de référence (le premier point enregistré)
+    start_time_ms = log_data[0]['timestamp_ms']
+    
+    # Remplissage des listes pour Matplotlib
     for d in log_data:
         u = d['uri']
         if u in data_dict:
-            data_dict[u]['t'].append((d['timestamp'] - start_time) / 1000.0)
+            # Conversion du temps : (ms - ms_depart) / 1000 = secondes
+            t_sec = (d['timestamp_ms'] - start_time_ms) / 1000.0
+            data_dict[u]['t'].append(t_sec)
             data_dict[u]['y'].append(d['y'])
             data_dict[u]['vy'].append(d['vy'])
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+    # Création de la figure avec deux graphiques l'un au-dessus de l'autre
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
 
     for uri, vals in data_dict.items():
-        label = f"Drone {uri[-2:]}"
-        ax1.plot(vals['t'], vals['y'], label=label)
-        ax2.plot(vals['t'], vals['vy'], label=label)
+        # On simplifie l'affichage de l'URI pour la légende (ex: Drone 04)
+        label_drone = f"Drone {uri.split('/')[-1]}"
+        
+        # Graphique 1 : Position Y
+        ax1.plot(vals['t'], vals['y'], label=label_drone, linewidth=2)
+        
+        # Graphique 2 : Vitesse Vy
+        ax2.plot(vals['t'], vals['vy'], label=label_drone, linewidth=1.5)
 
+    # Configuration du graphique de Position
     ax1.set_ylabel("Position Y (m)")
-    ax1.set_title("Analyse du Balayage Horizontal")
-    ax1.legend()
-    ax1.grid(True)
+    ax1.set_title("Analyse du Balayage Horizontal (Aspiration Latérale)")
+    ax1.legend(loc='upper right')
+    ax1.grid(True, linestyle='--', alpha=0.7)
 
+    # Configuration du graphique de Vitesse
     ax2.set_ylabel("Vitesse Vy (m/s)")
     ax2.set_xlabel("Temps (s)")
-    ax2.grid(True)
+    ax2.legend(loc='upper right')
+    ax2.grid(True, linestyle='--', alpha=0.7)
 
+    # Ajustement automatique et affichage
     plt.tight_layout()
+    print("✅ Affichage du graphique en cours...")
     plt.show()
 
 # ──────────────────────────────────────────
@@ -287,7 +311,7 @@ if __name__ == '__main__':
         global stop_demande, en_cours
         try:
             if key.char == 'x':
-                print("\n🛑 ARRÊT D'URGENCE (Touche X pressée) !")
+                print("\nARRÊT D'URGENCE (Touche X pressée) !")
                 stop_demande = True
                 en_cours = False
         except AttributeError:
