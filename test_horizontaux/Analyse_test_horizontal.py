@@ -1,63 +1,95 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+import os
+from mpl_toolkits.mplot3d import Axes3D
 
-# --- 1. CHARGEMENT DES DONNÉES ---
+# --- 1. CONFIGURATION ---
+filename = "./Tests/sweep_20260505_113351.csv" 
+URI_FOLLOWER = 'radio://0/80/2M/2'
 
-filename = "/Tests/sweep_2026xxxx_xxxxxx.csv" 
-df = pd.read_csv(filename)
+if not os.path.exists(filename):
+    print(f"Fichier introuvable : {filename}")
+    exit()
 
-# On sépare les données du Follower 
-# Remplace par l'URI de ton follower
-uri_follower = 'radio://0/80/2M/02'
-data = df[df['uri'] == uri_follower].copy()
-
-# Normalisation du temps (on commence à 0)
+df = pd.read_csv(filename, comment='#')
+data = df[df['uri'] == URI_FOLLOWER].copy()
 data['t'] = (data['timestamp_ms'] - data['timestamp_ms'].min()) / 1000.0
 
-# --- 2. GÉNÉRATION DE LA TRAJECTOIRE THÉORIQUE ---
-# On récupère les paramètres de l'expérience
-start_y = data['y'].iloc[0]  # La position réelle au début du log
-v_voulue = 0.05              # La vitesse SWEEP_SPEED 
+# --- 2. CALCUL DES RÉFÉRENCES ET PERTURBATIONS ---
+# On définit le "zéro" théorique sur les axes qui ne sont pas censés bouger
+start_x = data['x'].iloc[:10].mean()
+start_z = data['z'].iloc[:10].mean()
 
-# Trajectoire théorique : Y_th = Y_depart - (Vitesse * Temps)
-data['y_theorique'] = start_y - (v_voulue * data['t'])
+data['erreur_x'] = data['x'] - start_x
+data['erreur_z'] = data['z'] - start_z
 
-# On sature la trajectoire théorique pour qu'elle ne descende pas sous END_Y
-end_y_cible = 0.5
-data['y_theorique'] = data['y_theorique'].clip(lower=end_y_cible)
+# Lissage des vitesses (pour filtrer le bruit des capteurs)
+window = 5
+data['vx_smooth'] = data['vx'].rolling(window=window).mean()
+data['vy_smooth'] = data['vy'].rolling(window=window).mean()
+data['vz_smooth'] = data['vz'].rolling(window=window).mean()
 
-# --- 3. CALCUL DE L'ERREUR (PERTURBATIONS) ---
-# L'écart entre le réel et la théorie représente l'influence du vent/aspiration
-data['erreur_y'] = data['y'] - data['y_theorique']
+# --- 3. GRAPHIQUES : POSITIONS ET VITESSES ---
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
 
-# --- 4. AFFICHAGE DES GRAPHIQUES ---
-plt.figure(figsize=(12, 8))
+# Graphique A : Déviations (Perturbations subies)
+ax1.plot(data['t'], data['erreur_x'], color='forestgreen', label='Déviation X (Latérale)', linewidth=1.5)
+ax1.plot(data['t'], data['erreur_z'], color='purple', label='Déviation Z (Altitude)', linewidth=1.5)
+ax1.axhline(0, color='black', linestyle='--', alpha=0.5)
+ax1.set_ylabel("Écart de position (m)")
+ax1.set_title(f"Analyse des Perturbations et Réactions - {filename}")
+ax1.legend(loc='upper right')
+ax1.grid(True, alpha=0.3)
 
-# Graphique principal : Trajectoires
-plt.subplot(2, 1, 1)
-plt.plot(data['t'], data['y_theorique'], 'r--', label="Trajectoire Théorique (Consigne)", linewidth=2)
-plt.plot(data['t'], data['y'], 'b-', label="Trajectoire Réelle (Enregistrée)", linewidth=2)
-plt.ylabel("Position Y (m)")
-plt.title("Comparaison Trajectoire Théorique vs Réelle")
-plt.legend()
-plt.grid(True, alpha=0.3)
-
-# Graphique secondaire : Erreur (Déviation due à l'air)
-plt.subplot(2, 1, 2)
-plt.fill_between(data['t'], data['erreur_y'], color='orange', alpha=0.3)
-plt.plot(data['t'], data['erreur_y'], color='darkorange', label="Écart (Perturbation subie)")
-plt.axhline(0, color='black', linewidth=1)
-plt.xlabel("Temps (s)")
-plt.ylabel("Écart Y (m)")
-plt.title("Déviation causée par les perturbations de l'air")
-plt.legend()
-plt.grid(True, alpha=0.3)
+# Graphique B : Vitesses (Réaction du drone)
+ax2.plot(data['t'], data['vx_smooth'], label='Vitesse Vx (Correction X)', alpha=0.8)
+ax2.plot(data['t'], data['vy_smooth'], label='Vitesse Vy (Mouvement Y)', color='blue', linewidth=2)
+ax2.plot(data['t'], data['vz_smooth'], label='Vitesse Vz (Correction Z)', alpha=0.8)
+ax2.axhline(0, color='black', linestyle='-', linewidth=1)
+ax2.set_xlabel("Temps (s)")
+ax2.set_ylabel("Vitesse (m/s)")
+ax2.legend(loc='upper right')
+ax2.grid(True, alpha=0.3)
 
 plt.tight_layout()
+
+# --- 4. TRAJECTOIRE 3D ---
+fig_3d = plt.figure(figsize=(10, 8))
+ax3d = fig_3d.add_subplot(111, projection='3d')
+
+# Trajectoire réelle
+ax3d.plot(data['x'], data['y'], data['z'], label='Vol Réel (Drone)', color='blue', linewidth=2)
+
+# Ligne théorique idéale (X et Z fixes, variation uniquement sur Y)
+y_min, y_max = data['y'].min(), data['y'].max()
+ax3d.plot([start_x, start_x], [y_min, y_max], [start_z, start_z], 
+          'r--', label='Trajectoire Théorique', alpha=0.7)
+
+# Points de repère
+ax3d.scatter(data['x'].iloc[0], data['y'].iloc[0], data['z'].iloc[0], color='green', s=50, label='Départ')
+ax3d.scatter(data['x'].iloc[-1], data['y'].iloc[-1], data['z'].iloc[-1], color='red', s=50, label='Fin')
+
+ax3d.set_xlabel('X (m)')
+ax3d.set_ylabel('Y (m)')
+ax3d.set_zlabel('Z (m)')
+ax3d.set_title('Visualisation Spatiale de la Dérive')
+ax3d.legend()
+
+# Échelle égale pour ne pas déformer les proportions
+max_range = np.array([data['x'].max()-data['x'].min(), 
+                     data['y'].max()-data['y'].min(), 
+                     data['z'].max()-data['z'].min()]).max() / 2.0
+mid_x, mid_y, mid_z = (data['x'].mean(), data['y'].mean(), data['z'].mean())
+ax3d.set_xlim(mid_x - max_range, mid_x + max_range)
+ax3d.set_ylim(mid_y - max_range, mid_y + max_range)
+ax3d.set_zlim(mid_z - max_range, mid_z + max_range)
+
 plt.show()
 
-# --- 5. ANALYSE STATISTIQUE ---
-erreur_max = data['erreur_y'].abs().max()
-print(f"Analyse terminée pour {uri_follower} :")
-print(f"- Déviation maximale subie : {erreur_max:.3f} m")
+# --- 5. STATISTIQUES ---
+print(f"\n--- Bilan de l'expérience ---")
+print(f"Position cible fixe : X={start_x:.3f}m, Z={start_z:.3f}m")
+print(f"Erreur max X (latérale) : {data['erreur_x'].abs().max()*100:.2f} cm")
+print(f"Erreur max Z (hauteur)  : {data['erreur_z'].abs().max()*100:.2f} cm")
+print(f"Vitesse moyenne de balayage Vy : {data['vy'].mean():.3f} m/s")
