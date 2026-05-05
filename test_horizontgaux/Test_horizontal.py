@@ -22,7 +22,7 @@ from cflib.positioning.motion_commander import MotionCommander
 # CONFIGURATION
 # ──────────────────────────────────────────
 
-URI_LEADER = 'radio://0/80/2M/1'   
+URI_LEADER = 'radio://0/80/2M/2'   
 URI_FOLLOWER = 'radio://0/80/2M/4'   
 
 URIS = [URI_LEADER, URI_FOLLOWER]
