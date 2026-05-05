@@ -1,4 +1,5 @@
 #décallage dans l'approche du drone => influence de l'air + contact lors de l'atterrissage 
+#erreur capteur bon exemple calibration
 #leader: A1 ; follower: 2
 timestamp_ms,wall_time,uri,x,y,z,vx,vy,vz
 496244,1777973749.2192693,radio://0/80/2M/A1,0.005297427531331778,0.11306919902563095,0.0008133830851875246,0.0014890804886817932,0.0005398350185714662,-0.009487899020314217
