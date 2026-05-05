@@ -9,11 +9,10 @@ import cflib.crtp
 from cflib.crazyflie import Crazyflie
 from cflib.crazyflie.syncCrazyflie import SyncCrazyflie
 from cflib.crazyflie.log import LogConfig
-from cflib.positioning.motion_commander import MotionCommander
 
 # ========== CONFIGURATION ==========
 
-URI = 'radio://0/80/2M/E7E7E7E7E7'
+URI = 'radio://0/80/2M/2'
 
 # Trajectoire (ligne droite selon x)
 START_X = 0
@@ -22,17 +21,18 @@ Y_LIGNE =  0.0
 
 # Balayage vertical — HAUTEUR_MAX = juste sous le Dioné
 HAUTEUR_MIN = 0.2
-HAUTEUR_MAX = 1
-STEP        = 0.2
+HAUTEUR_MAX = 0.7
+STEP        = 0.25
 
 # Vol
-VITESSE_CROISIERE        = 0.3
-VITESSE_REPOSITIONNEMENT = 0.2
+VITESSE_CROISIERE        = 0.25    # Réduit pour meilleure stabilité
+VITESSE_REPOSITIONNEMENT = 0.15   # Réduit pour moins d'oscillations
 
 PERIODE_LOG_MS  = 20
 DOSSIER_SORTIE  = './resultats'
 STABILISATION_S = 2.0
-TOLERANCE_POS   = 0.05          # marge d'arrivée (m)
+TOLERANCE_POS   = 0.08          # Augmenté pour éviter surréactions (marge d'arrivée m)
+TOLERANCE_APPROCHE = 0.12       # Tolérance avant de commencer décélération (m)
 
 # Sécurité
 TIMEOUT_DEPLACEMENT = 30.0      # secondes max pour atteindre une cible
@@ -54,6 +54,7 @@ class ErreurSecurite(Exception):
 
 pos = np.array([0.0, 0.0, 0.0])
 vel = np.array([0.0, 0.0, 0.0])
+orientation = np.array([0.0, 0.0, 0.0])  # roll, pitch, yaw (rad)
 
 enregistrement = []
 enregistrer    = False
@@ -62,21 +63,25 @@ enregistrer    = False
 # ========== LOGGING ==========
 
 def _callback_log(timestamp, data, logconf):
-    global pos, vel
+    global pos, vel, orientation
     pos = np.array([data[f'stateEstimate.{a}'] for a in 'xyz'])
     vel = np.array([data[f'stateEstimate.v{a}'] for a in 'xyz'])
+    orientation = np.array([data['stateEstimate.roll'], 
+                           data['stateEstimate.pitch'], 
+                           data['stateEstimate.yaw']])
 
     if enregistrer:
         enregistrement.append({
             't': time.time(),
             'x': pos[0], 'y': pos[1], 'z': pos[2],
             'vx': vel[0], 'vy': vel[1], 'vz': vel[2],
+            'roll': orientation[0], 'pitch': orientation[1], 'yaw': orientation[2],
         })
 
 
 def demarrer_log(scf):
     conf = LogConfig(name='Etats', period_in_ms=PERIODE_LOG_MS)
-    for var in ['x', 'y', 'z', 'vx', 'vy', 'vz']:
+    for var in ['x', 'y', 'z', 'vx', 'vy', 'vz', 'roll', 'pitch', 'yaw']:
         conf.add_variable(f'stateEstimate.{var}', 'float')
     scf.cf.log.add_config(conf)
     conf.data_received_cb.add_callback(
@@ -144,10 +149,10 @@ def attendre_convergence_estimateur():
             return
 
 
-# ========== DEPLACEMENT ==========
-# HYPOTHESE : le drone est posé avec le nez aligné selon +x Lighthouse
-# et le yaw reste stable (pas de rotation). Ainsi start_linear_motion
-# (repère body) correspond au repère monde du Lighthouse.
+# ========== DEPLACEMENT EN ESPACE GLOBAL ==========
+# Les commandes sont envoyées en espace monde (repère Lighthouse)
+# indépendamment de l'orientation du drone, ce qui évite tout décalage
+# en cas de perturbation de l'orientation.
 
 def attendre_cible(axe, cible):
     """Attend que pos[axe] atteigne cible avec timeout et vérif bornes.
@@ -165,31 +170,83 @@ def attendre_cible(axe, cible):
         time.sleep(0.02)
 
 
-def aller_a_x(mc, x_cible, vitesse):
+def aller_a_x(cf, x_cible, vitesse):
+    """Déplacement selon x en espace global avec décélération progressive et correction y."""
     dx = x_cible - pos[0]
     if abs(dx) < TOLERANCE_POS:
         return
-    vx = vitesse if dx > 0 else -vitesse
-    mc.start_linear_motion(vx, 0, 0)
-    attendre_cible(0, x_cible)
-    mc.start_linear_motion(0, 0, 0)
+    
+    # Déterminer direction
+    direction = 1 if dx > 0 else -1
+    vitesse = abs(vitesse) * direction
+    
+    # Phase 1 : Approche progressive
+    cf.commander.send_velocity_world_setpoint(vitesse, 0, 0, 0)
+    
+    # Attendre la cible avec seuil d'approche
+    t0 = time.time()
+    while abs(pos[0] - x_cible) > TOLERANCE_POS:
+        if time.time() - t0 > TIMEOUT_DEPLACEMENT:
+            raise ErreurSecurite(
+                f"Timeout sur x : pos={pos[0]:.3f}, cible={x_cible:.3f}"
+            )
+        
+        # Correction légère de drift selon y
+        vy_corr = -pos[1] * 0.15  # Feedback proportionnel très faible
+        vy_corr = np.clip(vy_corr, -0.05, 0.05)  # Limiter correction
+        
+        # Vérifier si on approche (décélération progressive)
+        dist_restante = abs(pos[0] - x_cible)
+        if dist_restante < TOLERANCE_APPROCHE:
+            # Réduire vitesse progressivement
+            ratio = dist_restante / TOLERANCE_APPROCHE
+            vx_final = vitesse * ratio * 0.6  # Max 60% de vitesse en approche
+            cf.commander.send_velocity_world_setpoint(vx_final, vy_corr, 0, 0)
+        
+        verifier_bornes()
+        time.sleep(0.03)
+    
+    # Arrêt complet
+    cf.commander.send_velocity_world_setpoint(0, 0, 0, 0)
     time.sleep(0.3)
 
 
-def ajuster_hauteur(mc, z_cible, vitesse):
+def ajuster_hauteur(cf, z_cible, vitesse):
+    """Ajustement d'altitude en espace global avec décélération progressive."""
     dz = z_cible - pos[2]
     if abs(dz) < TOLERANCE_POS:
         return
-    vz = vitesse if dz > 0 else -vitesse
-    mc.start_linear_motion(0, 0, vz)
-    attendre_cible(2, z_cible)
-    mc.start_linear_motion(0, 0, 0)
+    
+    direction = 1 if dz > 0 else -1
+    vitesse = abs(vitesse) * direction
+    
+    cf.commander.send_velocity_world_setpoint(0, 0, vitesse, 0)
+    
+    # Attendre la cible avec décélération progressive
+    t0 = time.time()
+    while abs(pos[2] - z_cible) > TOLERANCE_POS:
+        if time.time() - t0 > TIMEOUT_DEPLACEMENT:
+            raise ErreurSecurite(
+                f"Timeout sur z : pos={pos[2]:.3f}, cible={z_cible:.3f}"
+            )
+        
+        # Décélération progressive
+        dist_restante = abs(pos[2] - z_cible)
+        if dist_restante < TOLERANCE_APPROCHE:
+            ratio = dist_restante / TOLERANCE_APPROCHE
+            vz_final = vitesse * ratio * 0.6
+            cf.commander.send_velocity_world_setpoint(0, 0, vz_final, 0)
+        
+        verifier_bornes()
+        time.sleep(0.03)
+    
+    cf.commander.send_velocity_world_setpoint(0, 0, 0, 0)
     time.sleep(0.3)
 
 
 # ========== PASSE SOUS LE DIONE ==========
 
-def effectuer_passe(mc, hauteur):
+def effectuer_passe(cf, hauteur):
     global enregistrer, enregistrement
 
     print(f"[PASSE] Début — h={hauteur:.2f}m, v={VITESSE_CROISIERE}m/s")
@@ -197,9 +254,9 @@ def effectuer_passe(mc, hauteur):
     enregistrement.clear()
     enregistrer = True
 
-    mc.start_linear_motion(VITESSE_CROISIERE, 0, 0)
+    cf.commander.send_velocity_world_setpoint(VITESSE_CROISIERE, 0, 0, 0)
     attendre_cible(0, END_X)
-    mc.start_linear_motion(0, 0, 0)
+    cf.commander.send_velocity_world_setpoint(0, 0, 0, 0)
 
     enregistrer = False
     donnees = list(enregistrement)
@@ -228,7 +285,7 @@ def exporter_csv(donnees, hauteur):
         f.write(f"# y_ligne: {Y_LIGNE}\n")
         f.write(f"# vitesse_croisiere: {VITESSE_CROISIERE}\n")
         f.write(f"# date: {time.strftime('%Y-%m-%dT%H:%M:%S')}\n")
-        f.write("t,x,y,z,vx,vy,vz,dev_y,dev_z,deviation\n")
+        f.write("t,x,y,z,vx,vy,vz,roll,pitch,yaw,dev_y,dev_z,deviation\n")
 
         for d in donnees:
             t_rel = d['t'] - t0
@@ -239,6 +296,7 @@ def exporter_csv(donnees, hauteur):
 
             f.write(f"{t_rel:.4f},{d['x']:.4f},{d['y']:.4f},{d['z']:.4f},"
                     f"{d['vx']:.4f},{d['vy']:.4f},{d['vz']:.4f},"
+                    f"{d['roll']:.4f},{d['pitch']:.4f},{d['yaw']:.4f},"
                     f"{dev_y:.4f},{dev_z:.4f},{deviation:.4f}\n")
 
     print(f"[CSV] → {chemin}")
@@ -282,6 +340,7 @@ def generer_plots(fichiers_csv):
     fig_devy, ax_devy  = plt.subplots(figsize=(10, 6))
     fig_max,  ax_max   = plt.subplots(figsize=(8, 5))
     fig_xy,   ax_xy    = plt.subplots(figsize=(10, 6))
+    fig_orient, ax_orient = plt.subplots(figsize=(10, 6))
 
     hauteurs = []
     devs_max = []
@@ -294,15 +353,24 @@ def generer_plots(fichiers_csv):
         x     = [d['x'] for d in donnees]
         y     = [d['y'] for d in donnees]
         z     = [d['z'] for d in donnees]
+        t_rel = [d['t'] - donnees[0]['t'] for d in donnees]
         dv_y  = [d['dev_y'] for d in donnees]
         dv_z  = [d['dev_z'] for d in donnees]
         dev   = [d['deviation'] for d in donnees]
+        roll  = [d['roll'] for d in donnees]
+        pitch = [d['pitch'] for d in donnees]
+        yaw   = [d['yaw'] for d in donnees]
         label = f'h={h:.2f}m'
 
         ax_xz.plot(x, z, color=couleur, label=label)
         ax_devz.plot(x, dv_z, color=couleur, label=label)
         ax_devy.plot(x, dv_y, color=couleur, label=label)
         ax_xy.plot(x, y, color=couleur, label=label)
+        
+        # Tracer l'orientation en fonction du temps
+        ax_orient.plot(t_rel, np.degrees(roll), color=couleur, linestyle='-', alpha=0.7, label=f'{label} Roll')
+        ax_orient.plot(t_rel, np.degrees(pitch), color=couleur, linestyle='--', alpha=0.7, label=f'{label} Pitch')
+        ax_orient.plot(t_rel, np.degrees(yaw), color=couleur, linestyle=':', alpha=0.7, label=f'{label} Yaw')
 
         hauteurs.append(h)
         devs_max.append(max(dev) if dev else 0)
@@ -346,7 +414,15 @@ def generer_plots(fichiers_csv):
     ax_xy.legend(fontsize=8)
     fig_xy.savefig(os.path.join(DOSSIER_SORTIE, 'trajectoires_xy.png'), dpi=150)
 
-    print(f"[PLOT] 5 figures → {DOSSIER_SORTIE}/")
+    # Fig 6 — Orientation (roll, pitch, yaw)
+    ax_orient.axhline(y=0, color='gray', ls='--', alpha=0.5)
+    ax_orient.set_xlabel('Temps (s)')
+    ax_orient.set_ylabel('Angle (°)')
+    ax_orient.set_title('Orientation du drone (roll, pitch, yaw) vs temps')
+    ax_orient.legend(fontsize=7, loc='best')
+    fig_orient.savefig(os.path.join(DOSSIER_SORTIE, 'orientation_vs_temps.png'), dpi=150)
+
+    print(f"[PLOT] 6 figures → {DOSSIER_SORTIE}/")
     plt.show()
 
 
@@ -367,22 +443,26 @@ def lancer_experience(scf):
 
     fichiers = []
 
-    with MotionCommander(cf, default_height=HAUTEUR_MIN) as mc:
-        print(f"[EXP] Décollage → {HAUTEUR_MIN:.2f}m")
-        time.sleep(1)
+    # Décollage manuel en espace global
+    print(f"[EXP] Décollage → {HAUTEUR_MIN:.2f}m")
+    for _ in range(int(2.0 / 0.05)):
+        cf.commander.send_velocity_world_setpoint(0, 0, HAUTEUR_MIN / 2.0, 0)
+        time.sleep(0.05)
+    time.sleep(1)
 
-        aller_a_x(mc, START_X, VITESSE_REPOSITIONNEMENT)
+    try:
+        aller_a_x(cf, START_X, VITESSE_REPOSITIONNEMENT)
         print(f"[EXP] Au START — pos=({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f})")
         time.sleep(STABILISATION_S)
 
         for i, h in enumerate(hauteurs):
             print(f"\n[EXP] ═══ Passe {i+1}/{len(hauteurs)} — h={h:.2f}m ═══")
 
-            ajuster_hauteur(mc, h, VITESSE_REPOSITIONNEMENT)
+            ajuster_hauteur(cf, h, VITESSE_REPOSITIONNEMENT)
             print(f"[EXP] Hauteur → {pos[2]:.2f}m (cible {h:.2f})")
             time.sleep(STABILISATION_S)
 
-            donnees = effectuer_passe(mc, h)
+            donnees = effectuer_passe(cf, h)
 
             chemin = exporter_csv(donnees, h)
             if chemin:
@@ -391,11 +471,32 @@ def lancer_experience(scf):
             time.sleep(1)
 
             if i < len(hauteurs) - 1:
-                aller_a_x(mc, START_X, VITESSE_REPOSITIONNEMENT)
+                aller_a_x(cf, START_X, VITESSE_REPOSITIONNEMENT)
                 print(f"[EXP] Retour START → x={pos[0]:.2f}")
                 time.sleep(1)
 
         print("\n[EXP] Atterrissage...")
+        # Atterrissage manuel en espace global
+        landing_time = 4.0
+        steps = int(landing_time / 0.1)
+        vz = -pos[2] / landing_time
+        for _ in range(steps):
+            cf.commander.send_velocity_world_setpoint(0, 0, vz, 0)
+            time.sleep(0.1)
+        cf.commander.send_stop_setpoint()
+        cf.commander.send_notify_setpoint_stop()
+
+    except ErreurSecurite as e:
+        # En cas d'erreur, atterrir d'urgence
+        landing_time = 4.0
+        steps = int(landing_time / 0.1)
+        vz = -pos[2] / landing_time
+        for _ in range(steps):
+            cf.commander.send_velocity_world_setpoint(0, 0, vz, 0)
+            time.sleep(0.1)
+        cf.commander.send_stop_setpoint()
+        cf.commander.send_notify_setpoint_stop()
+        raise
 
     print("[EXP] Terminé")
     return fichiers
@@ -420,7 +521,6 @@ if __name__ == '__main__':
             generer_plots(fichiers)
         except ErreurSecurite as e:
             print(f"\n[SECURITE] Arrêt d'urgence : {e}")
-            print("[SECURITE] Le MotionCommander va tenter l'atterrissage automatique")
         finally:
             try:
                 log_handle.stop()
