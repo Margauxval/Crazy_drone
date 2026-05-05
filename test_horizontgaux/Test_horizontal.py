@@ -22,8 +22,8 @@ from cflib.positioning.motion_commander import MotionCommander
 # CONFIGURATION
 # ──────────────────────────────────────────
 
-URI_LEADER = 'radio://0/80/2M/04'   
-URI_FOLLOWER = 'radio://0/80/2M/A1'   
+URI_LEADER = 'radio://0/80/2M/1'   
+URI_FOLLOWER = 'radio://0/80/2M/4'   
 
 URIS = [URI_LEADER, URI_FOLLOWER]
 
@@ -181,29 +181,68 @@ def fly_sequence(scf):
         global en_cours
         en_cours = False 
 
-# ──────────────────────────────────────────
+# ───────────────
 # POINT D'ENTRÉE
-# ──────────────────────────────────────────
+# ───────────────
 
 if __name__ == '__main__':
+    # Initialisation des pilotes radio
     logging.basicConfig(level=logging.ERROR)
     cflib.crtp.init_drivers()
+
+    print("\n" + "="*50)
+    print("DÉMARRAGE DE L'EXPÉRIENCE PIR 2026")
+    print("="*50)
 
     factory = CachedCfFactory(rw_cache='./cache')
 
     try:
+        # ÉTAPE 1 : Connexion
+        print(f"\n[ÉTAPE 1/5] Connexion aux drones : {URIS}...")
         with Swarm(URIS, factory=factory) as swarm:
+            print(" Drones connectés.")
+
+            # ÉTAPE 2 : Estimation de position
+            print("\n[ÉTAPE 2/5] Initialisation des estimateurs...")
             swarm.reset_estimators()
+            time.sleep(1.0) # Petit délai pour laisser les filtres se stabiliser
+            print(" Positionnement prêt.")
+
+            # ÉTAPE 3 : Configuration du Logging
+            print("\n[ÉTAPE 3/5] Activation de l'enregistrement des données...")
             swarm.parallel_safe(start_states_log)
+            print(f" Enregistrement actif (période : {STATE_LOG_PERIOD_MS}ms).")
+
+            # ÉTAPE 4 : Décollage et Vol
+            print("\n" + "!"*50)
+            print(" [ÉTAPE 4/5] PRÉPARATION AU DÉCOLLAGE...")
+            print(" ATTENTION : Appuyez sur 'X' pour un atterrissage d'urgence.")
+            print("!"*50)
             time.sleep(2.0)
 
             if not stop_demande:
+                print("\n Séquence de vol en cours...")
                 swarm.parallel_safe(fly_sequence)
+                print("\n Tous les drones ont atterri.")
+            else:
+                print("\n Vol annulé par l'utilisateur avant le décollage.")
 
     except Exception as e:
-        print(f"\nERREUR : {e}")
+        print("\n" + "#"*50)
+        print(" ERREUR CRITIQUE DURANT L'EXÉCUTION :")
+        print(f" {e}")
+        print("#"*50)
 
     finally:
+        # ÉTAPE 5 : Finalisation
+        print("\n[ÉTAPE 5/5] Fermeture du système et sauvegarde...")
+        
+        # Arrêt du listener clavier
         listener.stop()
+        
+        # Sauvegarde du fichier CSV
         save_csv()
-        print("FIN DE L'EXPÉRIENCE - CSV GÉNÉRÉ")
+        
+        print("\n" + "="*50)
+        print("EXPÉRIENCE TERMINÉE")
+        print("="*50)
