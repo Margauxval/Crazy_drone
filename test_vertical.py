@@ -23,8 +23,8 @@ from cflib.positioning.motion_commander import MotionCommander
 # CONFIGURATION
 # ──────────────────────────────────────────
 
-URI_LEADER   = 'radio://0/80/2M/2'
-URI_FOLLOWER = 'radio://0/80/2M/4'
+URI_LEADER   = 'radio://0/80/2M/A1'
+URI_FOLLOWER = 'radio://0/80/2M/2'
 URIS = [URI_LEADER, URI_FOLLOWER]
 
 LEADER_X         = 0.0   # position X stationnaire du leader      [m]

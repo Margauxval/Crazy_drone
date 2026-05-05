@@ -22,8 +22,8 @@ from cflib.positioning.motion_commander import MotionCommander
 # CONFIGURATION
 # ──────────────────────────────────────────
 
-URI_LEADER = 'radio://0/80/2M/2'   
-URI_FOLLOWER = 'radio://0/80/2M/4'   
+URI_LEADER = 'radio://0/80/2M/A1'   
+URI_FOLLOWER = 'radio://0/80/2M/2'   
 
 URIS = [URI_LEADER, URI_FOLLOWER]
 
@@ -31,8 +31,9 @@ LEADER_HEIGHT   = 1.0
 FOLLOWER_Z      = 1.0    
 START_Y         = 1.0    
 END_Y           = 0.5   
-SWEEP_SPEED     = 0.005   
-TAKEOFF_HEIGHT  = 0.5    
+SWEEP_SPEED     = 0.05 
+TAKEOFF_HEIGHT  = 0.5
+TEMPS_DE_BALAYAGE = 1.0    
 
 # Logging
 STATE_LOG_PERIOD_MS = 50   
@@ -140,35 +141,38 @@ def fly_follower(scf):
 
         # 2. Positionnement
         if not stop_demande:
+            # On se déplace au point de départ START_Y
             mc.move_distance(0, START_Y, 0, velocity=0.3)
             time.sleep(1.5) 
 
-        # 3. Balayage unique
-        sweep_distance = START_Y - END_Y          
-        sweep_duration = sweep_distance / SWEEP_SPEED  
-
+        # 3. Balayage unique (TEMPS DÉTERMINÉ MANUELLEMENT)
         if not stop_demande:
-            print(f"[FOLLOWER] -> Début du balayage unique...")
-            steps = int(sweep_duration / 0.05)   
-            vy_cmd = -SWEEP_SPEED                
+            print(f"[FOLLOWER] -> Début du balayage pendant {TEMPS_DE_BALAYAGE}s...")
+            
+            # Le nombre de pas est maintenant basé sur ton temps fixe
+            steps = int(TEMPS_DE_BALAYAGE / 0.05) 
+            vy_cmd = -SWEEP_SPEED # La vitesse reste celle définie dans ta config
 
             for _ in range(steps):
                 if stop_demande: break
+                # On envoie la vitesse Vy constante
                 cf.commander.send_velocity_world_setpoint(0, vy_cmd, 0, 0)
                 time.sleep(0.05)
 
+            # Arrêt propre du mouvement
             cf.commander.send_velocity_world_setpoint(0, 0, 0, 0)
 
         # 4. Maintien final et Atterrissage immédiat
         if not stop_demande:
-            print("[FOLLOWER] Maintien 5 s puis atterrissage sur place.")
+            print("[FOLLOWER] Maintien 1 s puis atterrissage sur place.")
             t_start = time.time()
-            while time.time() - t_start < 5.0 and not stop_demande:
+            while time.time() - t_start < 1.0 and not stop_demande:
                 time.sleep(0.1)
 
         print("[FOLLOWER] Atterrissage.")
 
     en_cours = False
+    print("[FOLLOWER] Séquence terminée.")
 
 def fly_sequence(scf):
     try:
