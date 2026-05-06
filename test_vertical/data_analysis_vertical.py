@@ -25,7 +25,6 @@ def analyser_fichier(filepath, filename):
         return
     
     # On assigne arbitrairement Leader/Follower selon l'ordre d'apparition
-    # ou on peut garder tes URIs fixes si tu préfères.
     leader = df[df['uri'] == uris[0]].copy()
     follower = df[df['uri'] == uris[1]].copy()
 
