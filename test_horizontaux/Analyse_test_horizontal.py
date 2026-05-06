@@ -5,8 +5,8 @@ import os
 from mpl_toolkits.mplot3d import Axes3D
 
 # --- 1. CONFIGURATION ---
-filename = "./Tests/sweep_20260505_102510.csv" 
-URI_FOLLOWER = 'radio://0/80/2M/2'
+filename = "./Tests/sweep_20260506_105406.csv" 
+URI_FOLLOWER = 'radio://0/80/2M/4'
 
 if not os.path.exists(filename):
     print(f"Fichier introuvable : {filename}")

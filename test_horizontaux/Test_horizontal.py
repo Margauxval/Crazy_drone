@@ -22,18 +22,19 @@ from cflib.positioning.motion_commander import MotionCommander
 # CONFIGURATION
 # ──────────────────────────────────────────
 
-URI_LEADER = 'radio://0/80/2M/A1'   
+URI_LEADER = 'radio://0/80/2M/B2'   
 URI_FOLLOWER = 'radio://0/80/2M/2'   
 
+#URIS = [URI_LEADER]
 URIS = [URI_LEADER, URI_FOLLOWER]
 
-LEADER_HEIGHT   = 1.0    
-FOLLOWER_Z      = 1.0    
-START_Y         = 1.0    
-END_Y           = 0.5   
+LEADER_HEIGHT   = 0.5   
+FOLLOWER_Z      = 0.5    
+START_Y         = 1.15   
+END_Y           = 0.9
 SWEEP_SPEED     = 0.05 
 TAKEOFF_HEIGHT  = 0.5
-TEMPS_DE_BALAYAGE = 1.0    
+TEMPS_DE_BALAYAGE = 1.0   
 
 # Logging
 STATE_LOG_PERIOD_MS = 50   
