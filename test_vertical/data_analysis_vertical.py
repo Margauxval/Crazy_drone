@@ -4,7 +4,7 @@ import numpy as np
 import os
 from mpl_toolkits.mplot3d import Axes3D
 
-# --- CONFIGURATION FLEXIBLE ---
+# A MODIFIER EN FONCTION DU DOSSIER COMPORTANT LES DONNEES
 INPUT_FOLDER = "donnees/test_0505_15cm"
 OUTPUT_FOLDER = "analyses_resultats_2904_15cm"
 
