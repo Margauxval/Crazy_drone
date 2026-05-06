@@ -1,12 +1,3 @@
-"""
-PIR 2026 – Test de Passage au-dessus (Aspiration Verticale)
-============================================================
-Leader  : vol stationnaire à (0, 0, LEADER_HEIGHT) — setpoints position en boucle
-Follower: balayage y=1 m → y=-1 m à z=LEADER_HEIGHT+0.5 m, v=0.05 m/s
-Urgence : appui sur ENTRÉE ou Ctrl+C → atterrissage immédiat des deux drones
-Logging : positions + vitesses toutes les 50 ms → CSV horodaté
-"""
-
 import time
 import threading
 import logging
