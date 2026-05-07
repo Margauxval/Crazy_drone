@@ -1,18 +1,9 @@
-"""
-PIR 2026 – Test de Balayage Horizontal (Aspiration Latérale)
-=============================================================
-Leader  : vol stationnaire à (0, 0, 1.0 m)
-Follower: balayage de y=1.0 m → y=0.5 m à z=1.0 m, vitesse 0.05 m/s
-Logging : positions + vitesses toutes les 50 ms → CSV horodaté
-"""
-
 import time
 import logging
 import csv
 from datetime import datetime
-
 import numpy as np
-from pynput import keyboard     # Pour la touche X
+from pynput import keyboard
 import cflib.crtp
 from cflib.crazyflie.swarm import CachedCfFactory, Swarm
 from cflib.crazyflie.log import LogConfig
@@ -22,32 +13,30 @@ from cflib.positioning.motion_commander import MotionCommander
 # CONFIGURATION
 # ──────────────────────────────────────────
 
-URI_LEADER = 'radio://0/80/2M/B2'   
-URI_FOLLOWER = 'radio://0/80/2M/2'   
-
-#URIS = [URI_LEADER]
+URI_LEADER = 'radio://0/80/2M/B2'
+URI_FOLLOWER = 'radio://0/80/2M/2'
+#URIS = [URI_FOLLOWER]
 URIS = [URI_LEADER, URI_FOLLOWER]
 
-LEADER_HEIGHT   = 0.5   
-FOLLOWER_Z      = 0.5    
-START_Y         = 1.15   
-END_Y           = 0.9
-SWEEP_SPEED     = 0.05 
-TAKEOFF_HEIGHT  = 0.5
-TEMPS_DE_BALAYAGE = 1.0   
+# --- PARAMÈTRES MODIFIABLES ---
+DISTANCE_CIBLE_ENTRE_DRONES = 0.40  # Distance d'arrêt par rapport au leader (en m)
+SWEEP_SPEED = 0.05                  # Vitesse de croisière (m/s)
+LEADER_HEIGHT = 0.5                 # Z stationnaire leader
+FOLLOWER_Z = 0.5                    # Z de balayage follower
+TAKEOFF_HEIGHT = 0.5                # Hauteur de décollage initiale
 
 # Logging
-STATE_LOG_PERIOD_MS = 50   
+STATE_LOG_PERIOD_MS = 50
 
 # ──────────────────────────────────────────
 # ÉTAT GLOBAL
 # ──────────────────────────────────────────
 
-pos_dict   = {}   
-vel_dict   = {}   
-log_data   = []   
-en_cours   = True 
-stop_demande = False 
+pos_dict = {}
+vel_dict = {}
+log_data = []
+en_cours = True
+stop_demande = False
 
 # ──────────────────────────────────────────
 # GESTION DE L'ARRÊT D'URGENCE (TOUCHE X)
@@ -67,11 +56,11 @@ listener = keyboard.Listener(on_press=on_press)
 listener.start()
 
 # ──────────────────────────────────────────
-# LOGGING
+# LOGGING (Lighthouse Ready)
 # ──────────────────────────────────────────
 
 def log_callback(uri, timestamp, data, logconf):
-    pos = np.array([data[f'stateEstimate.{a}']  for a in 'xyz'])
+    pos = np.array([data[f'stateEstimate.{a}'] for a in 'xyz'])
     vel = np.array([data[f'stateEstimate.v{a}'] for a in 'xyz'])
     pos_dict[uri] = pos
     vel_dict[uri] = vel
@@ -97,7 +86,7 @@ def start_states_log(scf):
     log_conf.start()
 
 def save_csv():
-    filename = f"sweep_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"sweep_lighthouse_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     if not log_data:
         print("Aucune donnée à sauvegarder.")
         return
@@ -109,7 +98,7 @@ def save_csv():
     print(f"Données sauvegardées : {filename} ({len(log_data)} lignes)")
 
 # ──────────────────────────────────────────
-# VOL
+# LOGIQUE DE VOL
 # ──────────────────────────────────────────
 
 def fly_leader(scf):
@@ -118,7 +107,7 @@ def fly_leader(scf):
     cf.platform.send_arming_request(True)
 
     with MotionCommander(cf, default_height=LEADER_HEIGHT) as mc:
-        print(f"[LEADER] Vol stationnaire à z={LEADER_HEIGHT} m...")
+        print(f"[LEADER] Vol stationnaire Lighthouse à z={LEADER_HEIGHT} m...")
         while en_cours and not stop_demande:
             time.sleep(0.1)
         print("[LEADER] Atterrissage.")
@@ -128,52 +117,57 @@ def fly_follower(scf):
     cf = scf.cf
     cf.platform.send_arming_request(True)
 
-    print("[FOLLOWER] En attente de stabilisation du leader…")
+    print("[FOLLOWER] En attente de stabilisation...")
     time.sleep(3.0)
+
+    # Récupération de la position de départ absolue
+    start_pos = pos_dict.get(URI_FOLLOWER, np.array([0, 0, 0]))
+    print(f"[FOLLOWER] Point de départ Lighthouse relevé : Y = {start_pos[1]:.2f}")
 
     with MotionCommander(cf, default_height=TAKEOFF_HEIGHT) as mc:
         if stop_demande: return
 
-        # 1. Montée
-        dz = FOLLOWER_Z - TAKEOFF_HEIGHT   
-        if dz > 0 and not stop_demande:
+        # 1. Mise à niveau
+        dz = FOLLOWER_Z - TAKEOFF_HEIGHT
+        if dz > 0:
             mc.up(dz, velocity=0.2)
             time.sleep(1.0)
 
-        # 2. Positionnement
-        if not stop_demande:
-            # On se déplace au point de départ START_Y
-            mc.move_distance(0, START_Y, 0, velocity=0.3)
-            time.sleep(1.5) 
+        # 2. Balayage asservi sur la position du Leader
+        print(f"[FOLLOWER] -> Début du balayage vers le Leader (Cible : {DISTANCE_CIBLE_ENTRE_DRONES}m)")
+        
+        reached = False
+        while not reached and not stop_demande:
+            # On récupère les positions actuelles via le dictionnaire de log
+            p_leader = pos_dict.get(URI_LEADER, np.array([0, 0, 0]))
+            p_follower = pos_dict.get(URI_FOLLOWER, np.array([0, 0, 0]))
 
-        # 3. Balayage unique (TEMPS DÉTERMINÉ MANUELLEMENT)
-        if not stop_demande:
-            print(f"[FOLLOWER] -> Début du balayage pendant {TEMPS_DE_BALAYAGE}s...")
+            # Calcul de la cible absolue (Y leader + offset)
+            # Si le follower vient de Y = -1 et le leader est à 0, target sera -0.15
+            if start_pos[1] < p_leader[1]:
+                target_y = p_leader[1] - DISTANCE_CIBLE_ENTRE_DRONES
+            else:
+                target_y = p_leader[1] + DISTANCE_CIBLE_ENTRE_DRONES
+
+            # Condition d'arrêt (précision 3cm)
+            if abs(p_follower[1] - target_y) < 0.03:
+                reached = True
+                print(f"[FOLLOWER] Arrivé à {DISTANCE_CIBLE_ENTRE_DRONES}m du Leader.")
+            else:
+                # Envoi de la consigne de position absolue
+                # On maintient X et Z du point de départ, on varie Y
+                cf.commander.send_position_setpoint(start_pos[0], target_y, FOLLOWER_Z, 0)
             
-            # Le nombre de pas est maintenant basé sur ton temps fixe
-            steps = int(TEMPS_DE_BALAYAGE / 0.05) 
-            vy_cmd = -SWEEP_SPEED # La vitesse reste celle définie dans ta config
+            time.sleep(0.05)
 
-            for _ in range(steps):
-                if stop_demande: break
-                # On envoie la vitesse Vy constante
-                cf.commander.send_velocity_world_setpoint(0, vy_cmd, 0, 0)
-                time.sleep(0.05)
-
-            # Arrêt propre du mouvement
-            cf.commander.send_velocity_world_setpoint(0, 0, 0, 0)
-
-        # 4. Maintien final et Atterrissage immédiat
+        # 3. Maintien final
         if not stop_demande:
-            print("[FOLLOWER] Maintien 1 s puis atterrissage sur place.")
-            t_start = time.time()
-            while time.time() - t_start < 1.0 and not stop_demande:
-                time.sleep(0.1)
+            print("[FOLLOWER] Maintien position 5s...")
+            time.sleep(5.0)
 
         print("[FOLLOWER] Atterrissage.")
 
     en_cours = False
-    print("[FOLLOWER] Séquence terminée.")
 
 def fly_sequence(scf):
     try:
@@ -186,12 +180,11 @@ def fly_sequence(scf):
         global en_cours
         en_cours = False 
 
-# ───────────────
-# POINT D'ENTRÉE
-# ───────────────
+# ──────────────────────────────────────────
+# POINT D'ENTRÉE (STRUCTURE ORIGINALE)
+# ──────────────────────────────────────────
 
 if __name__ == '__main__':
-    # Initialisation des pilotes radio
     logging.basicConfig(level=logging.ERROR)
     cflib.crtp.init_drivers()
 
@@ -210,7 +203,7 @@ if __name__ == '__main__':
             # ÉTAPE 2 : Estimation de position
             print("\n[ÉTAPE 2/5] Initialisation des estimateurs...")
             swarm.reset_estimators()
-            time.sleep(1.0) # Petit délai pour laisser les filtres se stabiliser
+            time.sleep(1.0) 
             print(" Positionnement prêt.")
 
             # ÉTAPE 3 : Configuration du Logging
@@ -241,13 +234,8 @@ if __name__ == '__main__':
     finally:
         # ÉTAPE 5 : Finalisation
         print("\n[ÉTAPE 5/5] Fermeture du système et sauvegarde...")
-        
-        # Arrêt du listener clavier
         listener.stop()
-        
-        # Sauvegarde du fichier CSV
         save_csv()
-        
         print("\n" + "="*50)
         print("EXPÉRIENCE TERMINÉE")
         print("="*50)
