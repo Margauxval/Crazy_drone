@@ -8,7 +8,389 @@ Urgence : appui sur ENTRÉE ou Ctrl+C → atterrissage immédiat des deux drones
 Logging : positions + vitesses toutes les 50 ms → CSV horodaté
 """
 
+import time"""
+PIR 2026 – Test d'Aspiration Verticale (descente au-dessus) — v2
+=================================================================
+Leader  : vol stationnaire à (0, 0, LEADER_HEIGHT) — setpoints position en boucle
+Follower: monte à FOLLOWER_Z_START → se positionne en y=0 (au-dessus du leader)
+          → descend progressivement jusqu'à FOLLOWER_Z_FINAL via setpoints de POSITION
+          → s'écarte latéralement avant d'atterrir (pas de collision)
+Urgence : appui sur ENTRÉE ou Ctrl+C → atterrissage immédiat des deux drones
+Logging : positions + vitesses toutes les 50 ms → CSV horodaté
+
+╔══════════════════════════════════════════════════════════════╗
+║              PARAMÈTRES QUE VOUS POUVEZ FAIRE VARIER         ║
+╠══════════════════════════════════════════════════════════════╣
+║  LEADER_HEIGHT    → hauteur de vol du leader                 ║
+║  FOLLOWER_Z_START → altitude de départ de la descente        ║
+║  FOLLOWER_Z_FINAL → altitude d'arrivée (proximité max)  ★   ║
+║  DESCENT_SPEED    → vitesse de descente (durée expérience)   ║
+║  HOLD_AT_END_S    → durée de maintien en bas                 ║
+║  FOLLOWER_START_Y → écart latéral au décollage               ║
+╚══════════════════════════════════════════════════════════════╝
+"""
+
 import time
+import threading
+import logging
+import csv
+from datetime import datetime
+
+import numpy as np
+import cflib.crtp
+from cflib.crazyflie.swarm import CachedCfFactory, Swarm
+from cflib.crazyflie.log import LogConfig
+from cflib.positioning.motion_commander import MotionCommander
+
+# ══════════════════════════════════════════════════════════════
+#  CONFIGURATION RÉSEAU — adresses radio des drones
+# ══════════════════════════════════════════════════════════════
+
+URI_LEADER   = 'radio://0/80/2M/4'
+URI_FOLLOWER = 'radio://0/80/2M/2'
+URIS = [URI_LEADER, URI_FOLLOWER]
+
+# ══════════════════════════════════════════════════════════════
+#  ★ PARAMÈTRES EXPÉRIMENTAUX — À FAIRE VARIER ★
+# ══════════════════════════════════════════════════════════════
+
+# ── Leader ────────────────────────────────────────────────────
+LEADER_X      = 0.0   # position X du leader                   [m]
+LEADER_Y      = 0.0   # position Y du leader                   [m]
+LEADER_HEIGHT = 0.5   # ★ hauteur de vol du leader             [m]
+              #         Valeurs typiques : 0.4 / 0.5 / 0.6
+
+# ── Follower — altitudes ──────────────────────────────────────
+FOLLOWER_Z_START = 1.5  # ★ altitude de départ de la descente  [m]
+              #         Doit être > FOLLOWER_Z_FINAL
+              #         Valeurs typiques : 1.25 / 1.5 / 2.0
+
+FOLLOWER_Z_FINAL = 0.75 # ★ altitude d'arrivée (proximité max) [m]
+              #         ⚠ Ne pas descendre sous LEADER_HEIGHT + 0.15 m
+              #         Progression recommandée par paliers :
+              #           Palier 1 (prudent)  : LEADER_HEIGHT + 0.40 → ex: 0.90
+              #           Palier 2 (modéré)   : LEADER_HEIGHT + 0.25 → ex: 0.75
+              #           Palier 3 (risqué)   : LEADER_HEIGHT + 0.15 → ex: 0.65
+
+# ── Follower — cinématique ────────────────────────────────────
+DESCENT_SPEED    = 0.03  # ★ vitesse de descente               [m/s]
+              #         Plus c'est lent → plus de points de mesure
+              #         Durée descente = (Z_START - Z_FINAL) / SPEED
+              #         Valeurs typiques : 0.02 (lent) / 0.05 (rapide)
+
+HOLD_AT_END_S    = 10.0  # ★ maintien en bas après la descente [s]
+              #         Allonger pour observer l'effet à distance fixe
+              #         Valeurs typiques : 5 / 10 / 20
+
+FOLLOWER_START_Y = 1.0   # ★ écart latéral au décollage/atterr.[m]
+              #         Le follower décolle et atterrit à y=+1 m du leader
+
+# ── Timing (ne pas modifier sauf raison précise) ──────────────
+TAKEOFF_HEIGHT   = 0.5   # hauteur intermédiaire de décollage  [m]
+LEADER_STABILIZE = 4.0   # délai avant départ follower         [s]
+HOVER_DT         = 0.05  # période des setpoints (~20 Hz)      [s]
+
+# ── Logging ───────────────────────────────────────────────────
+STATE_LOG_PERIOD_MS = 50
+
+# ══════════════════════════════════════════════════════════════
+#  FLAGS ET RÉFÉRENCES GLOBAUX
+# ══════════════════════════════════════════════════════════════
+
+en_cours = True
+urgence  = False
+cf_refs  = {}
+log_data = []
+
+# ══════════════════════════════════════════════════════════════
+#  ATTERRISSAGE D'URGENCE
+# ══════════════════════════════════════════════════════════════
+
+def emergency_land():
+    global urgence, en_cours
+    urgence  = True
+    en_cours = False
+    print("\nAtterrissage d'urgence déclenché !")
+    for uri, cf in cf_refs.items():
+        try:
+            cf.commander.send_stop_setpoint()
+            print(f"   → {uri} : stop setpoint envoyé")
+        except Exception as e:
+            print(f"   → {uri} : erreur stop ({e})")
+
+
+def watch_emergency_key():
+    print("Appuyez sur [ENTRÉE] à tout moment pour un atterrissage d'urgence.\n")
+    try:
+        input()
+        if not urgence:
+            print("\n[URGENCE] Touche ENTRÉE détectée.")
+            emergency_land()
+    except EOFError:
+        pass
+
+# ══════════════════════════════════════════════════════════════
+#  LOGGING LIGHTHOUSE
+# ══════════════════════════════════════════════════════════════
+
+pos_dict = {}
+vel_dict = {}
+
+
+def log_callback(uri, timestamp, data, logconf):
+    pos = np.array([data[f'stateEstimate.{a}']  for a in 'xyz'])
+    vel = np.array([data[f'stateEstimate.v{a}'] for a in 'xyz'])
+    pos_dict[uri] = pos
+    vel_dict[uri] = vel
+    log_data.append({
+        'timestamp_ms': timestamp,
+        'wall_time'   : time.time(),
+        'uri'         : uri,
+        'x' : pos[0], 'y' : pos[1], 'z' : pos[2],
+        'vx': vel[0], 'vy': vel[1], 'vz': vel[2],
+    })
+
+
+def start_states_log(scf):
+    log_conf = LogConfig(name='States', period_in_ms=STATE_LOG_PERIOD_MS)
+    for var in ['x', 'y', 'z', 'vx', 'vy', 'vz']:
+        log_conf.add_variable(f'stateEstimate.{var}', 'float')
+    uri = scf.cf.link_uri
+    scf.cf.log.add_config(log_conf)
+    log_conf.data_received_cb.add_callback(
+        lambda ts, data, lc: log_callback(uri, ts, data, lc)
+    )
+    log_conf.start()
+
+
+def save_csv():
+    filename = f"descent_above_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    if not log_data:
+        print("Aucune donnée à sauvegarder.")
+        return
+    fieldnames = ['timestamp_ms', 'wall_time', 'uri',
+                  'x', 'y', 'z', 'vx', 'vy', 'vz']
+    with open(filename, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(log_data)
+    print(f"Données sauvegardées : {filename}  ({len(log_data)} lignes)")
+
+# ══════════════════════════════════════════════════════════════
+#  UTILITAIRE
+# ══════════════════════════════════════════════════════════════
+
+def _wait(duration_s):
+    """Attente interruptible par le flag urgence (résolution 50 ms)."""
+    end = time.time() + duration_s
+    while time.time() < end:
+        if urgence:
+            return
+        time.sleep(0.05)
+
+# ══════════════════════════════════════════════════════════════
+#  LEADER — VOL STATIONNAIRE STABILISÉ
+# ══════════════════════════════════════════════════════════════
+
+def fly_leader(scf):
+    """
+    Maintien de position par setpoints ABSOLUS à 20 Hz.
+    send_position_setpoint() active le contrôleur embarqué qui
+    compense activement toute dérive ou perturbation aérodynamique.
+    """
+    cf = scf.cf
+    cf_refs[cf.link_uri] = cf
+    cf.platform.send_arming_request(True)
+
+    with MotionCommander(cf, default_height=LEADER_HEIGHT) as mc:
+        _wait(1.5)
+        print(f"[LEADER] Stabilisé à (x={LEADER_X}, y={LEADER_Y}, z={LEADER_HEIGHT} m)")
+        print(f"[LEADER] Setpoints position en boucle à {int(1/HOVER_DT)} Hz…")
+
+        while not urgence and en_cours:
+            cf.commander.send_position_setpoint(
+                LEADER_X, LEADER_Y, LEADER_HEIGHT, yaw=0
+            )
+            time.sleep(HOVER_DT)
+
+        if urgence:
+            return
+        print("[LEADER] Expérience terminée — atterrissage.")
+
+# ══════════════════════════════════════════════════════════════
+#  FOLLOWER — DESCENTE EN POSITION AU-DESSUS DU LEADER
+# ══════════════════════════════════════════════════════════════
+
+def fly_follower(scf):
+    """
+    Séquence complète du follower :
+    1. Attend LEADER_STABILIZE s
+    2. Décolle à TAKEOFF_HEIGHT puis monte à FOLLOWER_Z_START
+    3. Se positionne en y=0 (au-dessus du leader)
+    4. ★ Descend via setpoints de POSITION ABSOLUE — le contrôleur
+       embarqué compense l'upwash et force l'atteinte de la cible
+    5. Maintient HOLD_AT_END_S à FOLLOWER_Z_FINAL
+    6. S'écarte latéralement à y=FOLLOWER_START_Y AVANT d'atterrir
+       → aucune collision possible avec le leader
+    """
+    global en_cours
+    cf = scf.cf
+    cf_refs[cf.link_uri] = cf
+    cf.platform.send_arming_request(True)
+
+    print(f"[FOLLOWER] Attente stabilisation du leader ({LEADER_STABILIZE} s)…")
+    _wait(LEADER_STABILIZE)
+    if urgence:
+        return
+
+    with MotionCommander(cf, default_height=TAKEOFF_HEIGHT) as mc:
+
+        # ── 1. Montée à FOLLOWER_Z_START ──────────────────────────────────
+        dz = FOLLOWER_Z_START - TAKEOFF_HEIGHT
+        if dz > 0 and not urgence:
+            print(f"[FOLLOWER] Montée à z={FOLLOWER_Z_START} m…")
+            mc.up(dz, velocity=0.3)
+            _wait(1.5)
+        if urgence:
+            return
+
+        # ── 2. Positionnement en y=0 (au-dessus du leader) ────────────────
+        print(f"[FOLLOWER] Déplacement vers y=0 m (au-dessus du leader)…")
+        mc.move_distance(0, -FOLLOWER_START_Y, 0, velocity=0.3)
+        _wait(2.0)
+        if urgence:
+            return
+
+        # ── 3. ★ Descente via setpoints de POSITION ABSOLUE ───────────────
+        #
+        #   Contrairement à send_velocity_world_setpoint, le contrôleur de
+        #   position embarqué compense activement l'upwash du leader et
+        #   force le drone à atteindre la cible z_target.
+        #
+        #   La cible z_target diminue de DESCENT_SPEED * HOVER_DT à chaque
+        #   pas, ce qui produit une descente régulière et contrôlée.
+        #
+        descent_dist = FOLLOWER_Z_START - FOLLOWER_Z_FINAL
+        steps        = int((descent_dist / DESCENT_SPEED) / HOVER_DT)
+
+        print(f"\n[FOLLOWER] ──> Début descente (position setpoint)")
+        print(f"            z : {FOLLOWER_Z_START} → {FOLLOWER_Z_FINAL} m  "
+              f"| vitesse : {DESCENT_SPEED} m/s")
+        print(f"            Durée estimée : {descent_dist/DESCENT_SPEED:.0f} s  "
+              f"| Écart final leader : {FOLLOWER_Z_FINAL - LEADER_HEIGHT:.2f} m\n")
+
+        for step in range(steps):
+            if urgence:
+                cf.commander.send_stop_setpoint()
+                return
+            z_target = FOLLOWER_Z_START - step * HOVER_DT * DESCENT_SPEED
+            cf.commander.send_position_setpoint(0, 0, z_target, yaw=0)
+            time.sleep(HOVER_DT)
+
+            if step > 0 and step % 100 == 0:
+                gap = z_target - LEADER_HEIGHT
+                print(f"[FOLLOWER]   … z_cible ≈ {z_target:.2f} m  "
+                      f"| écart leader = {gap:.2f} m  "
+                      f"({step / steps * 100:.0f} %)")
+
+        # ── 4. ★ Maintien à FOLLOWER_Z_FINAL (position fixe) ──────────────
+        #   Le setpoint de position maintient le drone à la cible même si
+        #   l'upwash essaie de le repousser vers le haut.
+        if not urgence:
+            print(f"[FOLLOWER] Maintien {HOLD_AT_END_S} s "
+                  f"à z={FOLLOWER_Z_FINAL} m "
+                  f"(écart leader = {FOLLOWER_Z_FINAL - LEADER_HEIGHT:.2f} m)…")
+            end_hold = time.time() + HOLD_AT_END_S
+            while time.time() < end_hold:
+                if urgence:
+                    return
+                cf.commander.send_position_setpoint(0, 0, FOLLOWER_Z_FINAL, yaw=0)
+                time.sleep(HOVER_DT)
+
+        # ── 5. Dégagement latéral AVANT atterrissage ──────────────────────
+        #   IMPORTANT : le follower est à y=0, au-dessus du leader.
+        #   On s'écarte en Y avant que MotionCommander ne lance land().
+        #   Sans ce déplacement → collision certaine à la descente.
+        if not urgence:
+            print(f"[FOLLOWER] Dégagement latéral vers y={FOLLOWER_START_Y} m…")
+            mc.move_distance(0, FOLLOWER_START_Y, 0, velocity=0.3)
+            _wait(1.0)
+
+        print("[FOLLOWER] Atterrissage.")
+        # MotionCommander atterrit automatiquement — le follower est à y=FOLLOWER_START_Y
+        # → aucune collision avec le leader en y=0
+
+    en_cours = False
+    print("[FOLLOWER] Séquence terminée — signal envoyé au leader.")
+
+# ══════════════════════════════════════════════════════════════
+#  DISPATCH
+# ══════════════════════════════════════════════════════════════
+
+def fly_sequence(scf):
+    try:
+        if scf.cf.link_uri == URI_LEADER:
+            fly_leader(scf)
+        else:
+            fly_follower(scf)
+    except Exception as e:
+        print(f"[ERREUR] {scf.cf.link_uri} – {e}")
+        emergency_land()
+
+# ══════════════════════════════════════════════════════════════
+#  POINT D'ENTRÉE
+# ══════════════════════════════════════════════════════════════
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.ERROR)
+    cflib.crtp.init_drivers()
+
+    factory = CachedCfFactory(rw_cache='./cache')
+
+    descent_dist = FOLLOWER_Z_START - FOLLOWER_Z_FINAL
+    ecart_final  = FOLLOWER_Z_FINAL - LEADER_HEIGHT
+
+    # Vérification de sécurité au démarrage
+    if ecart_final < 0.15:
+        print(f"⚠  ATTENTION : écart final ({ecart_final:.2f} m) < 0.15 m — risque de collision !")
+        print(f"   Augmentez FOLLOWER_Z_FINAL ou réduisez LEADER_HEIGHT.")
+        print(f"   Appuyez sur ENTRÉE pour continuer quand même, ou Ctrl+C pour annuler.")
+        input()
+
+    print("=" * 62)
+    print("  PIR 2026 – Test descente au-dessus (aspiration verticale) v2")
+    print("=" * 62)
+    print(f"  Leader   ({URI_LEADER})  → stationnaire à z={LEADER_HEIGHT} m")
+    print(f"  Follower ({URI_FOLLOWER})")
+    print(f"    Montée   → z={FOLLOWER_Z_START} m, déplacement vers y=0")
+    print(f"    Descente → z: {FOLLOWER_Z_START} → {FOLLOWER_Z_FINAL} m "
+          f"à {DESCENT_SPEED} m/s  (MODE POSITION)")
+    print(f"    Maintien → {HOLD_AT_END_S} s à z={FOLLOWER_Z_FINAL} m")
+    print(f"  Écart vertical final    : {ecart_final:.2f} m")
+    print(f"  Durée descente estimée  : ~{descent_dist / DESCENT_SPEED:.0f} s")
+    print(f"  Durée totale estimée    : ~{LEADER_STABILIZE + 5 + descent_dist/DESCENT_SPEED + HOLD_AT_END_S:.0f} s\n")
+
+    t_emergency = threading.Thread(target=watch_emergency_key, daemon=True)
+    t_emergency.start()
+
+    try:
+        with Swarm(URIS, factory=factory) as swarm:
+            print("=== Connexion aux Crazyflies ===")
+            swarm.reset_estimators()
+            print("Estimateurs réinitialisés\n")
+            swarm.parallel_safe(start_states_log)
+            print("Logging LightHouse démarré\n")
+            print("=== DÉBUT DE L'EXPÉRIENCE ===")
+            swarm.parallel_safe(fly_sequence)
+
+    except KeyboardInterrupt:
+        print("\n[Ctrl+C] Interruption clavier détectée.")
+        emergency_land()
+
+    finally:
+        save_csv()
+        print("=== FIN DE L'EXPÉRIENCE ===")
+
 import threading
 import logging
 import csv
