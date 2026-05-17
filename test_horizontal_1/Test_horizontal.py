@@ -61,41 +61,42 @@ listener.start()
 
 def log_callback(uri, timestamp, data, logconf):
     pos = np.array([data[f'stateEstimate.{a}'] for a in 'xyz'])
-    vel = np.array([data[f'stateEstimate.v{a}'] for a in 'xyz'])
+    # Extraction des vitesses
+    vel = [data[f'stateEstimate.{a}'] for a in ['vx', 'vy', 'vz']]
+    
     pos_dict[uri] = pos
-    vel_dict[uri] = vel
-
     log_data.append({
-        'timestamp_ms' : timestamp,
-        'wall_time'    : time.time(),
-        'uri'          : uri,
+        'timestamp_ms': timestamp, 
+        'wall_time': time.time(), 
+        'uri': uri,
         'x': pos[0], 'y': pos[1], 'z': pos[2],
-        'vx': vel[0], 'vy': vel[1], 'vz': vel[2],
+        'vx': vel[0], 'vy': vel[1], 'vz': vel[2], # AJOUT
     })
 
 def start_states_log(scf):
     log_conf = LogConfig(name='States', period_in_ms=STATE_LOG_PERIOD_MS)
-    for var in ['x', 'y', 'z', 'vx', 'vy', 'vz']:
+    # Variables de position
+    for var in ['x', 'y', 'z']:
         log_conf.add_variable(f'stateEstimate.{var}', 'float')
-
-    uri = scf.cf.link_uri
+    # AJOUT : Variables de vitesse (en m/s)
+    for var in ['vx', 'vy', 'vz']:
+        log_conf.add_variable(f'stateEstimate.{var}', 'float')
+        
     scf.cf.log.add_config(log_conf)
-    log_conf.data_received_cb.add_callback(
-        lambda ts, data, lc: log_callback(uri, ts, data, lc)
-    )
+    log_conf.data_received_cb.add_callback(lambda ts, d, lc: log_callback(scf.cf.link_uri, ts, d, lc))
     log_conf.start()
 
 def save_csv():
-    filename = f"sweep_lighthouse_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    if not log_data:
-        print("Aucune donnée à sauvegarder.")
-        return
+    filename = f"sweep_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    if not log_data: return
+    # AJOUT de vx, vy, vz dans la liste des champs
     fieldnames = ['timestamp_ms', 'wall_time', 'uri', 'x', 'y', 'z', 'vx', 'vy', 'vz']
+    
     with open(filename, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(log_data)
-    print(f"Données sauvegardées : {filename} ({len(log_data)} lignes)")
+    print(f"Sauvegardé : {filename}")
 
 # ──────────────────────────────────────────
 # LOGIQUE DE VOL

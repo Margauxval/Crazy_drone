@@ -13,15 +13,15 @@ from cflib.positioning.motion_commander import MotionCommander
 # CONFIGURATION
 # ──────────────────────────────────────────
 
-URI_FOLLOWER = 'radio://0/80/2M/2'
+URI_FOLLOWER = 'radio://0/80/2M/4'
 URIS = [URI_FOLLOWER]  # Seul le follower est connecté
 
 # --- PARAMÈTRES DE DISTANCE ---
 # Le drone s'arrêtera à cette coordonnée Y absolue du repère Lighthouse
-STOP_Y_ABSOLU = -0.20  
+STOP_Y_ABSOLU = -0.50  
 SWEEP_SPEED = 0.05    # Vitesse en m/s (5 cm/s)
 
-FOLLOWER_Z = 0.5      # Altitude de vol
+FOLLOWER_Z = 1.2     # Altitude de vol
 TAKEOFF_HEIGHT = 0.5  # Altitude de décollage
 
 STATE_LOG_PERIOD_MS = 50
@@ -53,24 +53,37 @@ listener.start()
 
 def log_callback(uri, timestamp, data, logconf):
     pos = np.array([data[f'stateEstimate.{a}'] for a in 'xyz'])
+    # Extraction des vitesses
+    vel = [data[f'stateEstimate.{a}'] for a in ['vx', 'vy', 'vz']]
+    
     pos_dict[uri] = pos
     log_data.append({
-        'timestamp_ms': timestamp, 'wall_time': time.time(), 'uri': uri,
+        'timestamp_ms': timestamp, 
+        'wall_time': time.time(), 
+        'uri': uri,
         'x': pos[0], 'y': pos[1], 'z': pos[2],
+        'vx': vel[0], 'vy': vel[1], 'vz': vel[2], # AJOUT
     })
 
 def start_states_log(scf):
     log_conf = LogConfig(name='States', period_in_ms=STATE_LOG_PERIOD_MS)
+    # Variables de position
     for var in ['x', 'y', 'z']:
         log_conf.add_variable(f'stateEstimate.{var}', 'float')
+    # AJOUT : Variables de vitesse (en m/s)
+    for var in ['vx', 'vy', 'vz']:
+        log_conf.add_variable(f'stateEstimate.{var}', 'float')
+        
     scf.cf.log.add_config(log_conf)
     log_conf.data_received_cb.add_callback(lambda ts, d, lc: log_callback(scf.cf.link_uri, ts, d, lc))
     log_conf.start()
 
 def save_csv():
-    filename = f"solo_follower_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"sweep_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     if not log_data: return
-    fieldnames = ['timestamp_ms', 'wall_time', 'uri', 'x', 'y', 'z']
+    # AJOUT de vx, vy, vz dans la liste des champs
+    fieldnames = ['timestamp_ms', 'wall_time', 'uri', 'x', 'y', 'z', 'vx', 'vy', 'vz']
+    
     with open(filename, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
